@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { Check, X, ArrowRight, Flame, Timer, Loader2 } from "lucide-react";
+import { Check, X, ArrowRight, Flame, Timer, Loader2, RotateCcw } from "lucide-react";
 import {
-  useData, POS_COLOR, POS_LABEL, CONFED_LABEL, type Pos,
+  useData, POS_COLOR, POS_LABEL, CONFED_LABEL, type Pos, type Player, type Team,
 } from "@/lib/data";
 import {
   buildIndexes, buildPool, makeRound, modeByKey, categoryByKey, mulberry32, posLabel,
@@ -25,6 +25,7 @@ type QState = {
   best: number;
   recentItems: string[];
   recentAnswers: string[];
+  wrong: string[];         // item ids missed, newest first (Review queue)
 };
 type QAction =
   | { type: "load"; round: Round }
@@ -33,26 +34,32 @@ type QAction =
 
 const INIT: QState = {
   current: null, picked: null, phase: "idle",
-  total: 0, correct: 0, streak: 0, best: 0, recentItems: [], recentAnswers: [],
+  total: 0, correct: 0, streak: 0, best: 0, recentItems: [], recentAnswers: [], wrong: [],
 };
 
 function reducer(s: QState, a: QAction): QState {
   switch (a.type) {
     case "load":
-      return { ...s, current: a.round, picked: null, phase: "idle" };
+      // item types differ per mode, so the missed queue resets on mode/pool change
+      return { ...s, current: a.round, picked: null, phase: "idle", wrong: [] };
     case "next":
       return { ...s, current: a.round, picked: null, phase: "idle" };
     case "answer": {
       if (s.phase !== "idle" || !s.current) return s;
+      const id = s.current.itemId;
       const ok = a.value === s.current.correct;
       const streak = ok ? s.streak + 1 : 0;
+      const wrong = ok
+        ? s.wrong.filter((w) => w !== id)                       // got it right -> clear it
+        : [id, ...s.wrong.filter((w) => w !== id)].slice(0, 30); // missed -> queue it
       return {
         ...s,
         picked: a.value, phase: "answered",
         total: s.total + 1, correct: s.correct + (ok ? 1 : 0),
         streak, best: Math.max(s.best, streak),
-        recentItems: [s.current.itemId, ...s.recentItems].slice(0, 40),
-        recentAnswers: [s.current.correct, ...s.recentAnswers].slice(0, 12),
+        recentItems: [id, ...s.recentItems].slice(0, 100),
+        recentAnswers: [s.current.correct, ...s.recentAnswers].slice(0, 8),
+        wrong,
       };
     }
   }
@@ -66,9 +73,10 @@ export function Quiz({ modeKey, categoryKey }: { modeKey: ModeKey; categoryKey: 
   const mode = modeByKey(modeKey);
 
   const idx = useMemo(() => (data ? buildIndexes(data) : null), [data]);
+  const category = useMemo(() => categoryByKey(categoryKey), [categoryKey]);
   const pool = useMemo(
-    () => (data && idx ? buildPool(data, categoryByKey(categoryKey), idx) : []),
-    [data, idx, categoryKey],
+    () => (data && idx ? buildPool(data, category, idx) : []),
+    [data, idx, category],
   );
 
   const [state, dispatch] = useReducer(reducer, INIT);
@@ -81,23 +89,28 @@ export function Quiz({ modeKey, categoryKey }: { modeKey: ModeKey; categoryKey: 
   const scoredRef = useRef<string | null>(null);
   const [delta, setDelta] = useState<number | null>(null);
   const [autoMs, setAutoMs] = useState(0);
+  const [review, setReview] = useState(false);
   const [celebrate, setCelebrate] = useState(0);
+  const reviewRef = useRef(review);
+  reviewRef.current = review;
+  const advancedRef = useRef<string | null>(null);
 
   const build = useCallback(
-    (recentItems: string[], recentAnswers: string[]): Round | null => {
+    (recentItems: string[], recentAnswers: string[], force?: Player | Team, asReview?: boolean): Round | null => {
       if (!data || !idx || pool.length === 0) return null;
       return makeRound({
-        mode, pool, data, idx, rng: rngRef.current,
-        recentItems, recentAnswers, serial: serialRef.current++,
+        mode, pool, data, idx, category, rng: rngRef.current,
+        recentItems, recentAnswers, serial: serialRef.current++, force, review: asReview,
       });
     },
-    [data, idx, pool, mode],
+    [data, idx, pool, mode, category],
   );
 
-  // Load Elo + auto-advance pref once.
+  // Load Elo + prefs once.
   useEffect(() => {
     eloRef.current = loadElo();
     setAutoMs(load<number>("f26.auto", 0));
+    setReview(load<boolean>("f26.review", false));
   }, []);
 
   // Warm all national + league flags so flag-based modes feel instant.
@@ -117,9 +130,28 @@ export function Quiz({ modeKey, categoryKey }: { modeKey: ModeKey; categoryKey: 
   const onAnswer = useCallback((value: string) => dispatch({ type: "answer", value }), []);
   const onNext = useCallback(() => {
     const s = stateRef.current;
-    const round = build(s.recentItems, s.recentAnswers);
+    // advance at most once per round (guards keyboard + auto-advance + click races)
+    if (s.current && advancedRef.current === s.current.id) return;
+    if (s.current) advancedRef.current = s.current.id;
+
+    let force: Player | Team | undefined;
+    let asReview = false;
+    if (reviewRef.current && s.wrong.length && data && rngRef.current() < 0.45) {
+      const id = s.wrong[Math.floor(rngRef.current() * Math.min(s.wrong.length, 6))];
+      const item = mode.prompt === "player"
+        ? data.players.find((p) => p.id === id)
+        : data.teams.find((t) => t.id === id);
+      if (item) { force = item; asReview = true; }
+    }
+    const round = build(s.recentItems, s.recentAnswers, force, asReview);
     if (round) { setDelta(null); dispatch({ type: "next", round }); }
-  }, [build]);
+  }, [build, data, mode]);
+
+  const cycleReview = () => {
+    const next = !review;
+    setReview(next);
+    save("f26.review", next);
+  };
 
   // Score Elo exactly once per answered round.
   useEffect(() => {
@@ -197,7 +229,7 @@ export function Quiz({ modeKey, categoryKey }: { modeKey: ModeKey; categoryKey: 
         <div className="flex flex-1 flex-col gap-3">
           {r && <PromptCard r={r} />}
           {r && (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:auto-rows-fr sm:grid-cols-2">
               {r.choices.map((c, i) => (
                 <ChoiceButton
                   key={c.value}
@@ -229,20 +261,27 @@ export function Quiz({ modeKey, categoryKey }: { modeKey: ModeKey; categoryKey: 
           best={state.best}
           total={state.total}
           acc={acc}
-          onNext={onNext}
         />
       </div>
 
       {/* controls */}
-      <div className="mt-3 flex items-center justify-between">
-        <button onClick={cycleAuto} className="pill-glass focus-ring" title="Auto-advance after answering">
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button onClick={cycleAuto} className="pill-glass shrink-0 focus-ring" title="Auto-advance after answering">
           <Timer size={14} className="text-ink-muted" />
           {autoMs === 0 ? "Manual" : `Auto ${autoMs / 1000}s`}
         </button>
         <button
+          onClick={cycleReview}
+          className={`pill shrink-0 focus-ring ${review ? "pill-solid" : "pill-glass"}`}
+          title="Resurface questions you missed"
+        >
+          <RotateCcw size={14} className={review ? "" : "text-ink-muted"} />
+          Review{review && state.wrong.length ? ` ${state.wrong.length}` : ""}
+        </button>
+        <button
           onClick={onNext}
           disabled={!answered}
-          className={`pill focus-ring ${answered ? "pill-solid" : "pill-glass opacity-50"}`}
+          className={`pill ml-auto shrink-0 focus-ring ${answered ? "pill-solid" : "pill-glass opacity-50"}`}
         >
           Next <ArrowRight size={15} />
         </button>
@@ -257,6 +296,11 @@ export function Quiz({ modeKey, categoryKey }: { modeKey: ModeKey; categoryKey: 
 function PromptCard({ r }: { r: Round }) {
   return (
     <div className="glass-strong flex min-h-[200px] flex-col items-center justify-center gap-4 rounded-[28px] px-6 py-8 text-center animate-pop md:min-h-[260px]">
+      {r.review && (
+        <span className="inline-flex items-center gap-1 rounded-full bg-[rgba(217,119,6,0.12)] px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--amber)]">
+          <RotateCcw size={11} strokeWidth={2.5} /> Review
+        </span>
+      )}
       <div className="label">{r.hint}</div>
 
       {r.prompt === "flag" && r.team && (
@@ -269,7 +313,7 @@ function PromptCard({ r }: { r: Round }) {
 
       {r.prompt === "team" && r.team && (
         <>
-          <Flag iso2={r.team.iso2} className="h-16 w-24 rounded-md" w={160} />
+          <Flag iso2={r.team.iso2} className="h-16 rounded-md" w={160} />
           <div className="text-2xl font-bold leading-tight sm:text-3xl">{r.team.name}</div>
           <div className="text-sm text-ink-muted">{CONFED_LABEL[r.team.confed]}</div>
         </>
@@ -283,7 +327,7 @@ function PromptCard({ r }: { r: Round }) {
             {r.mode !== "position" && r.player.pos && <PosChip pos={r.player.pos} />}
             {(r.mode === "club" || r.mode === "position") && (
               <Chip>
-                <Flag iso2={r.player.iso2} className="h-4 w-6" />
+                <Flag iso2={r.player.iso2} className="h-4" />
                 {r.player.team}
               </Chip>
             )}
@@ -292,7 +336,7 @@ function PromptCard({ r }: { r: Round }) {
             )}
             {r.mode === "league" && (
               <Chip>
-                <Flag iso2={r.player.iso2} className="h-4 w-6" />
+                <Flag iso2={r.player.iso2} className="h-4" />
                 {r.player.team}
               </Chip>
             )}
@@ -355,18 +399,18 @@ function ChoiceButton({
           : state === "bad" ? <X size={16} className="text-red-600" />
           : index}
       </span>
-      {choiceKind === "flag" && choice.iso2 && <Flag iso2={choice.iso2} className="h-6 w-9" />}
+      {choiceKind === "flag" && choice.iso2 && <Flag iso2={choice.iso2} className="h-7" w={160} />}
       {choiceKind === "text" && mode === "position" && (
         <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: POS_COLOR[choice.value as Pos] }} />
       )}
-      <span className="font-medium">{label}</span>
+      <span className="min-w-0 break-words font-medium leading-snug">{label}</span>
     </button>
   );
 }
 
 // ----------------------------------------------------------------- side panel
 function SidePanel({
-  r, answered, won, delta, streak, best, total, acc, onNext,
+  r, answered, won, delta, streak, best, total, acc,
 }: {
   r: Round | null;
   answered: boolean;
@@ -376,7 +420,6 @@ function SidePanel({
   best: number;
   total: number;
   acc: number;
-  onNext: () => void;
 }) {
   return (
     <aside className="glass-strong flex flex-col rounded-[28px] p-5 md:w-[300px] md:shrink-0">
@@ -414,9 +457,9 @@ function SidePanel({
 
           <p className="mt-3 text-sm leading-relaxed text-ink/80">{facts(r)}</p>
 
-          <button onClick={onNext} className="pill-solid focus-ring mt-auto justify-center">
-            Next <ArrowRight size={15} />
-          </button>
+          <p className="mt-auto pt-3 text-sm text-ink-muted">
+            <kbd className="font-sans font-semibold">Enter</kbd> or Next to continue.
+          </p>
         </div>
       )}
     </aside>
@@ -440,7 +483,7 @@ function CorrectAnswer({ r }: { r: Round }) {
     const iso = r.choices.find((c) => c.value === r.correct)?.iso2;
     return (
       <span className="inline-flex items-center gap-2">
-        {iso && <Flag iso2={iso} className="h-5 w-7" />}
+        {iso && <Flag iso2={iso} className="h-5" />}
         {r.correct}
       </span>
     );

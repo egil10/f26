@@ -23,7 +23,7 @@ for (const mode of MODES) {
     const pool = buildPool(data, cat, idx);
     if (!pool.length) { fail("empty pool", mode.key, cat.key); continue; }
     for (let i = 0; i < 60; i++) {
-      const r = makeRound({ mode, pool, data, idx, rng, recentItems: [], recentAnswers: [], serial: i });
+      const r = makeRound({ mode, pool, data, idx, category: cat, rng, recentItems: [], recentAnswers: [], serial: i });
       checks++;
       const vals = r.choices.map((c) => c.value);
       if (r.choices.length !== 4) fail("not 4 choices", mode.key, cat.key, r.choices.length);
@@ -35,6 +35,38 @@ for (const mode of MODES) {
       if ((mode.prompt === "team" || mode.prompt === "flag") && !r.team) fail("team prompt without team", mode.key);
     }
   }
+}
+
+// --- anti-repeat: thread recency like the reducer; no player should recur soon ---
+{
+  const mode = MODES.find((m) => m.key === "nation")!;
+  const pool = buildPool(data, CATEGORIES[0], idx); // all players
+  let recentItems: string[] = [];
+  let recentAnswers: string[] = [];
+  const seenAt = new Map<string, number>();
+  let minGap = Infinity;
+  for (let i = 0; i < 400; i++) {
+    const r = makeRound({ mode, pool, data, idx, category: CATEGORIES[0], rng, recentItems, recentAnswers, serial: i });
+    if (seenAt.has(r.itemId)) minGap = Math.min(minGap, i - seenAt.get(r.itemId)!);
+    seenAt.set(r.itemId, i);
+    recentItems = [r.itemId, ...recentItems].slice(0, 100);
+    recentAnswers = [r.correct, ...recentAnswers].slice(0, 8);
+  }
+  checks += 400;
+  if (minGap < 50) fail("a player recurred too soon", `gap ${minGap}`);
+  console.log(`anti-repeat: min gap between the same player over 400 rounds = ${minGap === Infinity ? "no repeats" : minGap}`);
+}
+
+// --- force (Review mode) re-asks the exact item ---
+{
+  const mode = MODES.find((m) => m.key === "club")!;
+  const pool = buildPool(data, CATEGORIES[0], idx);
+  const target = data.players[123];
+  const r = makeRound({ mode, pool, data, idx, category: CATEGORIES[0], rng, recentItems: [], recentAnswers: [], serial: 1, force: target, review: true });
+  checks++;
+  if (r.itemId !== target.id) fail("force ignored", r.itemId, target.id);
+  if (!r.review) fail("review flag not set");
+  if (r.correct !== target.club) fail("forced club mismatch", r.correct, target.club);
 }
 
 console.log(`ran ${checks} rounds across ${MODES.length} modes × ${CATEGORIES.length} categories`);

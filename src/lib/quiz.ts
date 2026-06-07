@@ -2,7 +2,7 @@
 
 import {
   CONFEDS, CONFED_LABEL, GROUPS, POSITIONS, POS_LABEL,
-  type Data, type Player, type Pos, type Team,
+  type Confed, type Data, type Player, type Pos, type Team,
 } from "./data";
 
 // ---------------------------------------------------------------- seeded RNG
@@ -77,7 +77,7 @@ export type Indexes = {
   playerRank: Map<string, number>;            // player id -> fame index (0 = most famous)
   teamRank: Map<string, number>;              // team id -> obscurity index (0 = most famous)
   teamsByName: Map<string, Team>;
-  teamList: { name: string; iso2: string }[];
+  teamList: { name: string; iso2: string; confed: Confed }[];
   clubs: string[];
   clubLeague: Map<string, string | null>;     // club -> FIFA-3 league code
   clubsByLeague: Map<string, string[]>;
@@ -99,7 +99,7 @@ export function buildIndexes(data: Data): Indexes {
     .forEach((t, i) => teamRank.set(t.id, i));
 
   const teamsByName = new Map(teams.map((t) => [t.name, t]));
-  const teamList = teams.map((t) => ({ name: t.name, iso2: t.iso2 }));
+  const teamList = teams.map((t) => ({ name: t.name, iso2: t.iso2, confed: t.confed }));
 
   const clubLeague = new Map<string, string | null>();
   const clubsByLeague = new Map<string, string[]>();
@@ -133,6 +133,7 @@ export type Round = {
   choices: Choice[];
   difficulty: number;      // [0,1] for Elo
   hint: string;
+  review?: boolean;        // resurfaced from the missed-questions queue
 };
 
 // Build the pool of players for a category (used for player-prompt modes).
@@ -163,26 +164,22 @@ function sampleDistinct<T>(
   return out;
 }
 
-// Weighted pick over a small random sample, penalising recently used items/answers.
+// Pick an item, hard-excluding the recently shown ones so names don't recur until
+// roughly half the pool has gone by, and avoiding the last few answers back-to-back.
+// Falls back gracefully when a narrow pool is exhausted.
 function pickItem<T>(
   arr: T[], rng: () => number, keyOf: (t: T) => string, ansOf: (t: T) => string,
   recentItems: string[], recentAnswers: string[],
 ): T {
-  const recentSet = new Set(recentItems);
-  const cands = sampleDistinct(arr, Math.min(arr.length, 28), new Set(), keyOf, rng);
-  const weights = cands.map((c) => {
-    let w = 1;
-    if (recentSet.has(keyOf(c))) w *= 0.04;
-    if (recentAnswers.includes(ansOf(c))) w *= 0.35;
-    return w;
-  });
-  const total = weights.reduce((a, b) => a + b, 0);
-  let r = rng() * total;
-  for (let i = 0; i < cands.length; i++) {
-    r -= weights[i];
-    if (r <= 0) return cands[i];
-  }
-  return cands[cands.length - 1];
+  if (arr.length <= 1) return arr[0];
+  const window = Math.max(5, Math.floor(arr.length * 0.5));
+  const recentSet = new Set(recentItems.slice(0, window));
+  let fresh = arr.filter((x) => !recentSet.has(keyOf(x)));
+  if (fresh.length === 0) fresh = arr;
+  const recentAns = new Set(recentAnswers);
+  const fresher = fresh.filter((x) => !recentAns.has(ansOf(x)));
+  const pick = fresher.length ? fresher : fresh;
+  return pick[Math.floor(rng() * pick.length)];
 }
 
 export function makeRound(args: {
@@ -190,18 +187,42 @@ export function makeRound(args: {
   pool: Player[];
   data: Data;
   idx: Indexes;
+  category: Category;
   rng: () => number;
   recentItems: string[];
   recentAnswers: string[];
   serial: number;
+  force?: Player | Team;   // resurface a specific item (Review mode)
+  review?: boolean;
 }): Round {
-  const { mode, pool, data, idx, rng, recentItems, recentAnswers, serial } = args;
+  const { mode, pool, data, idx, category, rng, recentItems, recentAnswers, serial, force, review } = args;
   const N = data.players.length;
 
+  // Distractor teams: 2 from the same confederation (plausible) + the rest from anywhere.
+  const teamDistractors = (correctName: string, confed: Confed) => {
+    const near = sampleDistinct(
+      idx.teamList.filter((t) => t.confed === confed && t.name !== correctName),
+      2, new Set([correctName]), (t) => t.name, rng,
+    );
+    const exclude = new Set([correctName, ...near.map((t) => t.name)]);
+    const far = sampleDistinct(idx.teamList, 3 - near.length, exclude, (t) => t.name, rng);
+    return [...near, ...far];
+  };
+
   if (mode.prompt === "team" || mode.prompt === "flag") {
-    // Team-based modes: group / flag.
-    const teams = poolTeams(pool, data);
-    const team = pickItem(
+    // Group can't be filtered by group (that would fix the answer), so it's scoped
+    // by confederation only; flag respects whatever pool is selected.
+    let teams: Team[];
+    if (mode.key === "group") {
+      teams = category.key.startsWith("confed:")
+        ? data.teams.filter((t) => `confed:${t.confed}` === category.key)
+        : data.teams;
+    } else {
+      teams = poolTeams(pool, data);
+    }
+    if (teams.length === 0) teams = data.teams;
+
+    const team = (force as Team) ?? pickItem(
       teams, rng, (t) => t.id,
       (t) => (mode.key === "group" ? t.group : t.name),
       recentItems, recentAnswers,
@@ -215,33 +236,33 @@ export function makeRound(args: {
       const distract = sampleDistinct(GROUPS, 3, new Set([team.group]), (g) => g, rng);
       choices = shuffle([correct, ...distract].map((v) => ({ value: v })), rng);
     } else {
-      // flag
       correct = team.name;
-      const distract = sampleDistinct(idx.teamList, 3, new Set([team.name]), (t) => t.name, rng);
+      const distract = teamDistractors(team.name, team.confed);
       choices = shuffle([{ value: team.name }, ...distract.map((t) => ({ value: t.name }))], rng);
     }
     return {
       id: `${team.id}:${serial}`, itemId: team.id, mode: mode.key, prompt: mode.prompt,
-      choiceKind: mode.choices, team, correct, choices, difficulty, hint: mode.hint,
+      choiceKind: mode.choices, team, correct, choices, difficulty, hint: mode.hint, review,
     };
   }
 
   // Player-based modes: nation / club / position / league.
   let players = pool;
   if (mode.key === "league") players = pool.filter((p) => p.clubNat && data.leagues[p.clubNat]);
+  if (players.length === 0) players = data.players;
   const ansOf = (p: Player): string =>
     mode.key === "nation" ? p.team
     : mode.key === "club" ? p.club
     : mode.key === "position" ? (p.pos ?? "")
     : data.leagues[p.clubNat!].name; // league
 
-  const player = pickItem(players, rng, (p) => p.id, ansOf, recentItems, recentAnswers);
+  const player = (force as Player) ?? pickItem(players, rng, (p) => p.id, ansOf, recentItems, recentAnswers);
   const difficulty = (idx.playerRank.get(player.id) ?? 0) / Math.max(1, N - 1);
   const correct = ansOf(player);
 
   let choices: Choice[];
   if (mode.key === "nation") {
-    const distract = sampleDistinct(idx.teamList, 3, new Set([player.team]), (t) => t.name, rng);
+    const distract = teamDistractors(player.team, player.confed);
     choices = shuffle(
       [{ value: player.team, iso2: player.iso2 }, ...distract.map((t) => ({ value: t.name, iso2: t.iso2 }))],
       rng,
@@ -267,7 +288,7 @@ export function makeRound(args: {
 
   return {
     id: `${player.id}:${serial}`, itemId: player.id, mode: mode.key, prompt: mode.prompt,
-    choiceKind: mode.choices, player, correct, choices, difficulty, hint: mode.hint,
+    choiceKind: mode.choices, player, correct, choices, difficulty, hint: mode.hint, review,
   };
 }
 

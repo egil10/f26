@@ -95,7 +95,7 @@ function TeamGrid({ teams, onOpen }: { teams: Team[]; onOpen: (id: string) => vo
                 onClick={() => onOpen(t.id)}
                 className="glass flex flex-col gap-2 rounded-2xl p-3 text-left transition hover:-translate-y-px focus-ring"
               >
-                <Flag iso2={t.iso2} className="h-10 w-16 rounded-md" w={160} />
+                <Flag iso2={t.iso2} className="h-12 rounded-md" w={160} />
                 <div className="font-semibold leading-tight">{t.name}</div>
                 <div className="text-[12px] text-ink-muted">
                   {CONFED_LABEL[t.confed]} · {t.squadSize} players
@@ -118,7 +118,7 @@ function TeamDetail({ team, players, data, onBack }: { team: Team; players: Play
       </button>
 
       <div className="glass-strong mb-4 flex items-center gap-4 rounded-[28px] p-5">
-        <Flag iso2={team.iso2} className="h-16 w-24 rounded-md" w={160} />
+        <Flag iso2={team.iso2} className="h-16 rounded-md" w={160} />
         <div>
           <h1 className="text-2xl font-bold leading-tight">{team.name}</h1>
           <div className="mt-1 text-sm text-ink-muted">
@@ -126,7 +126,7 @@ function TeamDetail({ team, players, data, onBack }: { team: Team; players: Play
           </div>
           {team.coach && (
             <div className="mt-1 flex items-center gap-1.5 text-sm text-ink/80">
-              Coach: {team.coachIso2 && <Flag iso2={team.coachIso2} className="h-3.5 w-5" />}
+              Coach: {team.coachIso2 && <Flag iso2={team.coachIso2} className="h-3.5" />}
               {team.coach}
             </div>
           )}
@@ -161,20 +161,22 @@ function PlayerRow({ p, data }: { p: Player; data: Data }) {
   return (
     <div className="flex items-center gap-3 border-b border-black/5 px-3 py-2.5 last:border-0">
       <span className="w-6 shrink-0 text-center text-sm tabular-nums text-ink-muted">{p.no}</span>
-      <span className="min-w-0 flex-1">
-        <span className="font-medium">{p.name}</span>
-        {p.captain && (
-          <span className="ml-1.5 inline-grid h-4 w-4 place-items-center rounded-full bg-ink text-[9px] font-bold text-white align-middle" title="Captain">C</span>
-        )}
-      </span>
-      <span className="hidden min-w-0 items-center gap-1.5 text-sm text-ink-muted sm:flex">
-        {league && <Flag iso2={league.iso2} className="h-3.5 w-5" />}
-        <span className="truncate">{p.club}</span>
-      </span>
-      <span className="w-20 shrink-0 text-right text-sm tabular-nums text-ink-muted">
-        {p.caps}c · {p.goals}g
-      </span>
-      <span className="hidden w-8 shrink-0 text-right text-sm tabular-nums text-ink-muted sm:block">{p.age}</span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="truncate font-medium">{p.name}</span>
+          {p.captain && (
+            <span className="inline-grid h-4 w-4 shrink-0 place-items-center rounded-full bg-ink text-[9px] font-bold text-white" title="Captain">C</span>
+          )}
+        </div>
+        <div className="mt-0.5 flex items-center gap-1.5 text-[12px] text-ink-muted">
+          {league && <Flag iso2={league.iso2} className="h-3" />}
+          <span className="truncate">{p.club}</span>
+        </div>
+      </div>
+      <div className="shrink-0 text-right text-sm tabular-nums text-ink-muted">
+        <div>{p.caps}c · {p.goals}g</div>
+        {p.age != null && <div className="text-[11px]">age {p.age}</div>}
+      </div>
     </div>
   );
 }
@@ -199,16 +201,19 @@ function SearchResults({ data, q, onOpenTeam }: { data: Data; q: string; onOpenT
             onClick={() => onOpenTeam(p.teamId)}
             className="flex w-full items-center gap-3 border-b border-black/5 px-3 py-2.5 text-left transition last:border-0 hover:bg-black/[0.03] focus-ring"
           >
-            <Flag iso2={p.iso2} className="h-5 w-7" />
-            <span className="min-w-0 flex-1">
-              <span className="font-medium">{p.name}</span>
-              <span className="ml-2 text-sm text-ink-muted">{p.team}</span>
-            </span>
-            <span className="hidden items-center gap-1.5 text-sm text-ink-muted sm:flex">
-              {league && <Flag iso2={league.iso2} className="h-3.5 w-5" />}
-              <span className="truncate">{p.club}</span>
-            </span>
-            <span className="text-sm text-ink-muted">{POS_LABEL[p.pos as Pos] ?? ""}</span>
+            <Flag iso2={p.iso2} className="h-6" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="truncate font-medium">{p.name}</span>
+                <span className="shrink-0 text-[12px] text-ink-muted">{POS_LABEL[p.pos as Pos] ?? ""}</span>
+              </div>
+              <div className="mt-0.5 flex items-center gap-1.5 text-[12px] text-ink-muted">
+                <span className="shrink-0">{p.team}</span>
+                <span className="opacity-40">·</span>
+                {league && <Flag iso2={league.iso2} className="h-3" />}
+                <span className="truncate">{p.club}</span>
+              </div>
+            </div>
           </button>
         );
       })}

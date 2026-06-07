@@ -83,7 +83,7 @@ export function Picker({
                       onClick={() => { onPick(o.key); onClose(); }}
                       className={`pill focus-ring ${active ? "pill-solid" : "pill-glass"}`}
                     >
-                      {o.iso2 && <Flag iso2={o.iso2} className="h-4 w-6" />}
+                      {o.iso2 && <Flag iso2={o.iso2} className="h-4" />}
                       {o.label}
                     </button>
                   );

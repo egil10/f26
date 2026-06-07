@@ -9,6 +9,9 @@ next-env.d.ts
 # raw data source (regenerate with `npm run data`); shipped JSON lives in public/
 /data-raw/
 
+# local visual-test screenshots (scripts/shot.mjs)
+/shots/
+
 # production
 /build
 
@@ -27,3 +30,5 @@ yarn-error.log*
 
 # env
 .env*.local
+
+.vercel
