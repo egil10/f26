@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --canvas: #fafaf7;        --canvas-warm: #f3efe7;
+  --ink: #0a0a0a;           --ink-soft: #1c1c1e;   --ink-muted: #6b7280;
+  --hairline: rgba(10,10,10,0.08);
+  --glass-bg: rgba(255,255,255,0.55);
+  --glass-bg-strong: rgba(255,255,255,0.78);
+  --glass-stroke: rgba(255,255,255,0.7);
+  --accent: #0a0a0a;        --good: #16a34a;       --bad: #dc2626;
+  --amber: #d97706;
+}
+
+/* The signature backdrop: warm + cool radial glows over near-white paper. */
+html, body {
+  background:
+    radial-gradient(1200px 600px at 80% -10%, #ffeed8 0%, transparent 60%),
+    radial-gradient(900px 500px at 10% 100%, #e7eaff 0%, transparent 55%),
+    var(--canvas);
+  background-attachment: fixed;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "ss01", "cv11";
+}
+* { -webkit-tap-highlight-color: transparent; }
+button { font: inherit; }
+
+@layer components {
+  /* Translucent floating surfaces. `glass` for pills/cards, `glass-strong` for
+     the main content card, `frost` for modals (near-opaque so text reads). */
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border: 1px solid var(--glass-stroke);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.7), 0 1px 2px rgba(10,10,10,.04), 0 12px 32px -12px rgba(10,10,10,.18);
+  }
+  .glass-strong {
+    background: var(--glass-bg-strong);
+    backdrop-filter: saturate(180%) blur(24px); -webkit-backdrop-filter: saturate(180%) blur(24px);
+    border: 1px solid var(--glass-stroke);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.8), 0 1px 2px rgba(10,10,10,.05), 0 16px 40px -16px rgba(10,10,10,.2);
+  }
+  .frost {
+    background: rgba(252,251,247,.94);
+    backdrop-filter: saturate(180%) blur(32px); -webkit-backdrop-filter: saturate(180%) blur(32px);
+    border: 1px solid rgba(255,255,255,.85);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 1px 2px rgba(10,10,10,.04), 0 28px 80px -24px rgba(10,10,10,.35);
+  }
+  .frost-backdrop {
+    background: rgba(20,20,25,.32);
+    backdrop-filter: saturate(150%) blur(18px); -webkit-backdrop-filter: saturate(150%) blur(18px);
+  }
+  /* Pills are the universal control. One base, several fills. */
+  .pill       { @apply inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium select-none transition; }
+  .pill-ghost { @apply pill text-ink/80 hover:text-ink hover:bg-black/[0.04]; }
+  .pill-solid { @apply pill bg-black text-white hover:bg-black/85; }
+  .pill-glass { @apply pill glass text-ink/90 hover:text-ink; }
+  .focus-ring { @apply outline-none focus-visible:ring-2 focus-visible:ring-black/30 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas; }
+  /* The answer button: a generous glass tile that turns green/red on reveal. */
+  .answer {
+    @apply relative flex items-center gap-3 rounded-2xl px-4 py-3 text-left transition
+           glass focus-ring;
+  }
+  .answer:hover:not(:disabled) { @apply -translate-y-px; }
+}
+
+/* Tiny uppercase section label. */
+.label { @apply text-[11px] font-semibold uppercase tracking-wider text-ink-muted; }
+
+/* Thin floating-capsule scrollbars (replaces chunky Windows default). */
+*::-webkit-scrollbar { width: 12px; height: 12px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: rgba(10,10,10,.16); border: 3px solid transparent; border-radius: 999px; background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover { background-color: rgba(10,10,10,.32); background-clip: padding-box; }
+* { scrollbar-width: thin; scrollbar-color: rgba(10,10,10,.18) transparent; }
+/* Hide scrollbar entirely on horizontal control/filter strips. */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Celebration (streak milestones) */
+@keyframes confettiFall { 0% { transform: translateY(-12vh) rotate(0); opacity:0 } 8% { opacity:1 } 100% { transform: translateY(108vh) rotate(720deg); opacity:0 } }
+@keyframes diplomaPop { 0% { transform: scale(.82) translateY(12px); opacity:0 } 55% { transform: scale(1.04) translateY(0); opacity:1 } 100% { transform: scale(1) translateY(0); opacity:1 } }
+.animate-diploma { animation: diplomaPop 440ms cubic-bezier(.2,.8,.3,1.1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+}
