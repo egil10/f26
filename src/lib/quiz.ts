@@ -2,7 +2,7 @@
 
 import {
   CONFEDS, CONFED_LABEL, GROUPS, POSITIONS, POS_LABEL,
-  type Confed, type Data, type Player, type Pos, type Team,
+  type Confed, type Data, type Kit, type Player, type Pos, type Team,
 } from "./data";
 
 // ---------------------------------------------------------------- seeded RNG
@@ -26,8 +26,8 @@ const shuffle = <T>(arr: T[], rng: () => number): T[] => {
 };
 
 // ---------------------------------------------------------------- modes
-export type ModeKey = "nation" | "club" | "position" | "group" | "flag" | "league";
-export type PromptKind = "player" | "team" | "flag";
+export type ModeKey = "nation" | "club" | "position" | "group" | "flag" | "league" | "kit";
+export type PromptKind = "player" | "team" | "flag" | "kit";
 export type ChoiceKind = "flag" | "text";
 
 export type Mode = {
@@ -45,6 +45,7 @@ export const MODES: Mode[] = [
   { key: "league", label: "League", hint: "In which country does this player's club play?", prompt: "player", choices: "flag" },
   { key: "group", label: "Group", hint: "Which group is this team drawn in?", prompt: "team", choices: "text" },
   { key: "flag", label: "Flag", hint: "Which country's flag is this?", prompt: "flag", choices: "text" },
+  { key: "kit", label: "Kit", hint: "Which nation wears this home kit?", prompt: "kit", choices: "flag" },
 ];
 
 export const modeByKey = (k: ModeKey) => MODES.find((m) => m.key === k) ?? MODES[0];
@@ -129,6 +130,7 @@ export type Round = {
   choiceKind: ChoiceKind;
   player?: Player;
   team?: Team;
+  kit?: Kit;               // present on team-based rounds; rendered in Kit mode
   correct: string;
   choices: Choice[];
   difficulty: number;      // [0,1] for Elo
@@ -209,7 +211,7 @@ export function makeRound(args: {
     return [...near, ...far];
   };
 
-  if (mode.prompt === "team" || mode.prompt === "flag") {
+  if (mode.prompt === "team" || mode.prompt === "flag" || mode.prompt === "kit") {
     // Group can't be filtered by group (that would fix the answer), so it's scoped
     // by confederation only; flag respects whatever pool is selected.
     let teams: Team[];
@@ -235,6 +237,14 @@ export function makeRound(args: {
       correct = team.group;
       const distract = sampleDistinct(GROUPS, 3, new Set([team.group]), (g) => g, rng);
       choices = shuffle([correct, ...distract].map((v) => ({ value: v })), rng);
+    } else if (mode.prompt === "kit") {
+      // flag choices, so distractors carry their iso2 for the chips
+      correct = team.name;
+      const distract = teamDistractors(team.name, team.confed);
+      choices = shuffle(
+        [{ value: team.name, iso2: team.iso2 }, ...distract.map((t) => ({ value: t.name, iso2: t.iso2 }))],
+        rng,
+      );
     } else {
       correct = team.name;
       const distract = teamDistractors(team.name, team.confed);
@@ -242,7 +252,7 @@ export function makeRound(args: {
     }
     return {
       id: `${team.id}:${serial}`, itemId: team.id, mode: mode.key, prompt: mode.prompt,
-      choiceKind: mode.choices, team, correct, choices, difficulty, hint: mode.hint, review,
+      choiceKind: mode.choices, team, kit: data.kits[team.id], correct, choices, difficulty, hint: mode.hint, review,
     };
   }
 

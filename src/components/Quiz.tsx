@@ -12,6 +12,8 @@ import {
 import { loadElo, saveElo, applyResult, defElo, type EloState } from "@/lib/elo";
 import { load, save } from "@/lib/store";
 import { Flag, preloadFlags } from "./Flag";
+import { Jersey } from "./Jersey";
+import { Sparkles, ThumbsDown } from "lucide-react";
 
 // ----------------------------------------------------------------- reducer
 type Phase = "idle" | "answered";
@@ -311,6 +313,8 @@ function PromptCard({ r }: { r: Round }) {
         />
       )}
 
+      {r.prompt === "kit" && r.kit && <Jersey kit={r.kit} size={180} className="h-auto w-40 sm:w-48" />}
+
       {r.prompt === "team" && r.team && (
         <>
           <Flag iso2={r.team.iso2} className="h-16 rounded-md" w={160} />
@@ -457,6 +461,8 @@ function SidePanel({
 
           <p className="mt-3 text-sm leading-relaxed text-ink/80">{facts(r)}</p>
 
+          {r.kit?.nrk && <NrkNote nrk={r.kit.nrk} />}
+
           <p className="mt-auto pt-3 text-sm text-ink-muted">
             <kbd className="font-sans font-semibold">Enter</kbd> or Next to continue.
           </p>
@@ -502,6 +508,25 @@ function facts(r: Round): string {
   const bits = [p.team, posLabel(p.pos), p.club, `${p.caps} caps`, `${p.goals} goals`];
   if (p.age) bits.push(`age ${p.age}`);
   return bits.join(" · ");
+}
+
+// NRK jury verdict — shown on reveal for the kits NRK ranked finest / ugliest.
+function NrkNote({ nrk }: { nrk: NonNullable<Round["kit"]>["nrk"] }) {
+  if (!nrk) return null;
+  const best = nrk.kind === "best";
+  return (
+    <div
+      className={`mt-3 rounded-2xl px-3 py-2 text-sm leading-relaxed ${
+        best ? "bg-[rgba(22,163,74,0.1)] text-green-800" : "bg-[rgba(220,38,38,0.1)] text-red-800"
+      }`}
+    >
+      <div className="flex items-center gap-1.5 font-semibold">
+        {best ? <Sparkles size={14} /> : <ThumbsDown size={14} />}
+        NRK: #{nrk.rank} {best ? "finest" : "ugliest"} kit
+      </div>
+      <p className="mt-1 text-ink/80">{nrk.note}</p>
+    </div>
+  );
 }
 
 // ----------------------------------------------------------------- celebration

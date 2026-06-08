@@ -9,7 +9,7 @@ import {
 import type { Data } from "../src/lib/data.ts";
 
 const read = (f: string) => JSON.parse(fs.readFileSync(`public/${f}`, "utf8"));
-const data: Data = { players: read("players.json"), teams: read("teams.json"), leagues: read("leagues.json") };
+const data: Data = { players: read("players.json"), teams: read("teams.json"), leagues: read("leagues.json"), kits: read("kits.json") };
 
 const idx = buildIndexes(data);
 const rng = mulberry32(987654321);
@@ -32,7 +32,8 @@ for (const mode of MODES) {
       if (r.difficulty < 0 || r.difficulty > 1 || Number.isNaN(r.difficulty)) fail("bad difficulty", mode.key, r.difficulty);
       if (r.choiceKind === "flag" && r.choices.some((c) => !c.iso2)) fail("flag choice without iso2", mode.key, cat.key);
       if (mode.prompt === "player" && !r.player) fail("player prompt without player", mode.key);
-      if ((mode.prompt === "team" || mode.prompt === "flag") && !r.team) fail("team prompt without team", mode.key);
+      if ((mode.prompt === "team" || mode.prompt === "flag" || mode.prompt === "kit") && !r.team) fail("team prompt without team", mode.key);
+      if (mode.prompt === "kit" && !r.kit) fail("kit prompt without kit", mode.key, cat.key);
     }
   }
 }

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 // Bump when public/*.json is regenerated so the immutable cache misses (BLUEPRINT §6).
-export const DATA_VERSION = 1;
+export const DATA_VERSION = 2;
 
 export type Pos = "GK" | "DF" | "MF" | "FW";
 
@@ -43,6 +43,23 @@ export type Team = {
 export type League = { iso2: string; name: string };
 export type Leagues = Record<string, League>;
 
+// Home-kit colours for the "Kit" mode, keyed by team id (public/kits.json).
+export type KitPattern = "plain" | "stripes" | "hoops" | "halves" | "checkers";
+export type NrkVerdict = {
+  kind: "best" | "worst";
+  rank: number;
+  kit: "home" | "away";
+  note: string;          // NRK jury's take, paraphrased in English
+};
+export type Kit = {
+  primary: string;
+  secondary: string;
+  accent: string;
+  pattern: KitPattern;
+  nrk?: NrkVerdict;      // present only for the ~17 kits NRK ranked
+};
+export type Kits = Record<string, Kit>;
+
 export type Confed = "UEFA" | "CONMEBOL" | "CONCACAF" | "CAF" | "AFC" | "OFC";
 
 export const POSITIONS: Pos[] = ["GK", "DF", "MF", "FW"];
@@ -70,7 +87,7 @@ export const flagSrcSet = (iso2: string, w: 40 | 80 | 160 = 80) =>
 
 // ---- dataset loading: module-level cache so route changes don't refetch ----
 
-export type Data = { players: Player[]; teams: Team[]; leagues: Leagues };
+export type Data = { players: Player[]; teams: Team[]; leagues: Leagues; kits: Kits };
 
 let cache: Data | null = null;
 let inflight: Promise<Data> | null = null;
@@ -80,12 +97,13 @@ async function loadData(): Promise<Data> {
   if (inflight) return inflight;
   const v = `?v=${DATA_VERSION}`;
   inflight = (async () => {
-    const [players, teams, leagues] = await Promise.all([
+    const [players, teams, leagues, kits] = await Promise.all([
       fetch(`/players.json${v}`, { cache: "force-cache" }).then((r) => r.json()),
       fetch(`/teams.json${v}`, { cache: "force-cache" }).then((r) => r.json()),
       fetch(`/leagues.json${v}`, { cache: "force-cache" }).then((r) => r.json()),
+      fetch(`/kits.json${v}`, { cache: "force-cache" }).then((r) => r.json()),
     ]);
-    cache = { players, teams, leagues };
+    cache = { players, teams, leagues, kits };
     return cache;
   })();
   return inflight;
